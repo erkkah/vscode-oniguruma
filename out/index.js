@@ -294,7 +294,7 @@ function _loadWASM(loader, print, resolve, reject) {
                 importObject.env.emscripten_get_now = get_now;
                 importObject.wasi_snapshot_preview1.emscripten_get_now = get_now;
             }
-            loader(importObject).then(instantiatedSource => callback(instantiatedSource.instance), reject);
+            loader(importObject).then(instance => callback(instance), reject);
             return {}; // indicate async instantiation
         }
     }).then((binding) => {
@@ -310,7 +310,7 @@ function loadWASM(dataOrOptions) {
     initCalled = true;
     let data;
     let print;
-    if (dataOrOptions instanceof ArrayBuffer || dataOrOptions instanceof Response) {
+    if (dataOrOptions instanceof ArrayBuffer || dataOrOptions instanceof Response || dataOrOptions instanceof WebAssembly.Module) {
         data = dataOrOptions;
     }
     else {
@@ -327,6 +327,9 @@ function loadWASM(dataOrOptions) {
     else if (data instanceof Response && typeof WebAssembly.instantiateStreaming === 'function') {
         loader = _makeResponseStreamingLoader(data);
     }
+    else if (data instanceof WebAssembly.Module) {
+        loader = _makeModuleLoader(data);
+    }
     else {
         loader = _makeResponseNonStreamingLoader(data);
     }
@@ -334,16 +337,19 @@ function loadWASM(dataOrOptions) {
     return result;
 }
 exports.loadWASM = loadWASM;
+function _makeModuleLoader(module) {
+    return importObject => WebAssembly.instantiate(module, importObject);
+}
 function _makeArrayBufferLoader(data) {
-    return importObject => WebAssembly.instantiate(data, importObject);
+    return importObject => WebAssembly.instantiate(data, importObject).then(source => source.instance);
 }
 function _makeResponseStreamingLoader(data) {
-    return importObject => WebAssembly.instantiateStreaming(data, importObject);
+    return importObject => WebAssembly.instantiateStreaming(data, importObject).then(source => source.instance);
 }
 function _makeResponseNonStreamingLoader(data) {
     return async (importObject) => {
         const arrayBuffer = await data.arrayBuffer();
-        return WebAssembly.instantiate(arrayBuffer, importObject);
+        return (await WebAssembly.instantiate(arrayBuffer, importObject)).instance;
     };
 }
 function createOnigString(str) {

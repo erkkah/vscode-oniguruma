@@ -344,7 +344,7 @@ export class OnigScanner implements IOnigScanner {
 }
 
 
-type WASMLoader = (importObject: Record<string, Record<string, WebAssembly.ImportValue>> | undefined) => Promise<WebAssembly.WebAssemblyInstantiatedSource>;
+type WASMLoader = (importObject: Record<string, Record<string, WebAssembly.ImportValue>> | undefined) => Promise<WebAssembly.Instance>;
 
 function _loadWASM(loader: WASMLoader, print: ((str: string) => void) | undefined, resolve: () => void, reject: (err: any) => void): void {
 	OnigasmModuleFactory({
@@ -356,7 +356,7 @@ function _loadWASM(loader: WASMLoader, print: ((str: string) => void) | undefine
 				(<any>importObject).env.emscripten_get_now = get_now;
 				(<any>importObject).wasi_snapshot_preview1.emscripten_get_now = get_now;
 			}
-			loader(importObject).then(instantiatedSource => callback(instantiatedSource.instance), reject);
+			loader(importObject).then(instance => callback(instance), reject);
 			return {}; // indicate async instantiation
 		}
 	}).then((binding) => {
@@ -373,16 +373,17 @@ export interface IOptions {
 
 export function loadWASM(options: IOptions): Promise<void>;
 export function loadWASM(data: ArrayBuffer | Response): Promise<void>;
-export function loadWASM(dataOrOptions: ArrayBuffer | Response | IOptions): Promise<void> {
+export function loadWASM(module: WebAssembly.Module): Promise<void>;
+export function loadWASM(dataOrOptions: ArrayBuffer | Response | IOptions | WebAssembly.Module): Promise<void> {
 	if (initCalled) {
 		throw new Error(`Cannot invoke loadWASM more than once.`);
 	}
 	initCalled = true;
 
-	let data: ArrayBuffer | Response;
+	let data: ArrayBuffer | Response | WebAssembly.Module;
 	let print: ((str: string) => void) | undefined;
 
-	if (dataOrOptions instanceof ArrayBuffer || dataOrOptions instanceof Response) {
+	if (dataOrOptions instanceof ArrayBuffer || dataOrOptions instanceof Response || dataOrOptions instanceof WebAssembly.Module) {
 		data = dataOrOptions;
 	} else {
 		data = dataOrOptions.data;
@@ -398,6 +399,8 @@ export function loadWASM(dataOrOptions: ArrayBuffer | Response | IOptions): Prom
 		loader = _makeArrayBufferLoader(data);
 	} else if (data instanceof Response && typeof WebAssembly.instantiateStreaming === 'function') {
 		loader = _makeResponseStreamingLoader(data);
+	} else if (data instanceof WebAssembly.Module) {
+		loader = _makeModuleLoader(data);
 	} else {
 		loader = _makeResponseNonStreamingLoader(data);
 	}
@@ -406,16 +409,22 @@ export function loadWASM(dataOrOptions: ArrayBuffer | Response | IOptions): Prom
 	return result;
 }
 
+function _makeModuleLoader(module: WebAssembly.Module): WASMLoader {
+	return importObject => WebAssembly.instantiate(module, importObject);
+}
+
 function _makeArrayBufferLoader(data: ArrayBuffer): WASMLoader {
-	return importObject => WebAssembly.instantiate(data, importObject);
+	return importObject => WebAssembly.instantiate(data, importObject).then(source => source.instance);
 }
+
 function _makeResponseStreamingLoader(data: Response): WASMLoader {
-	return importObject => WebAssembly.instantiateStreaming(data, importObject);
+	return importObject => WebAssembly.instantiateStreaming(data, importObject).then(source => source.instance);
 }
+
 function _makeResponseNonStreamingLoader(data: Response): WASMLoader {
 	return async importObject => {
 		const arrayBuffer = await data.arrayBuffer();
-		return WebAssembly.instantiate(arrayBuffer, importObject)
+		return (await WebAssembly.instantiate(arrayBuffer, importObject)).instance;
 	};
 }
 

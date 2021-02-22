@@ -9,6 +9,7 @@ export interface IOptions {
 
 export function loadWASM(options: IOptions): Promise<void>;
 export function loadWASM(data: ArrayBuffer | Response): Promise<void>;
+export function loadWASM(module: WebAssembly.Module): Promise<void>;
 export function createOnigString(str: string): OnigString;
 export function createOnigScanner(patterns: string[]): OnigScanner;
 export function setDefaultDebugCall(defaultDebugCall: boolean): void;
